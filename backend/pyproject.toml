@@ -8,4 +8,5 @@ dependencies = [
     "fastapi>=0.139.0",
     "opencv-python-headless>=5.0.0.93",
     "uvicorn>=0.49.0",
+    "websockets>=16.0",
 ]

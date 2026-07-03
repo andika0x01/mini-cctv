@@ -1,5 +1,5 @@
 import type { Route } from "./+types/home";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -11,6 +11,9 @@ export function meta({}: Route.MetaArgs) {
 export default function Home() {
   const [isOn, setIsOn] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     fetch("/api/status")
@@ -25,6 +28,65 @@ export default function Home() {
       });
   }, []);
 
+  useEffect(() => {
+    if (isOn) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+      audioCtxRef.current = audioCtx;
+      let startTime = 0;
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/api/audio_ws`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      ws.binaryType = "arraybuffer";
+      ws.onmessage = (event) => {
+        if (!audioCtxRef.current) return;
+        
+        const pcm16 = new Int16Array(event.data);
+        const float32 = new Float32Array(pcm16.length);
+        for (let i = 0; i < pcm16.length; i++) {
+          float32[i] = pcm16[i] / 32768.0;
+        }
+        
+        const buffer = audioCtxRef.current.createBuffer(1, float32.length, 16000);
+        buffer.getChannelData(0).set(float32);
+        
+        const source = audioCtxRef.current.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtxRef.current.destination);
+        
+        if (startTime < audioCtxRef.current.currentTime) {
+            startTime = audioCtxRef.current.currentTime;
+        }
+        source.start(startTime);
+        startTime += buffer.duration;
+      };
+
+    } else {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+    };
+  }, [isOn]);
+
   const toggleCamera = async () => {
     const newState = !isOn;
     setIsOn(newState); 
@@ -35,6 +97,7 @@ export default function Home() {
         body: JSON.stringify({ is_on: newState })
       });
       const data = await res.json();
+      // Ensure state matches backend reality
       setIsOn(data.is_on);
     } catch (err) {
       console.error("Failed to toggle camera", err);
@@ -70,14 +133,11 @@ export default function Home() {
       {/* Video Feed */}
       <div className="w-full h-full flex items-center justify-center">
         {isOn ? (
-          <>
-            <img 
-              src="/api/video_feed" 
-              alt="Live CCTV Feed" 
-              className="w-full h-full object-contain"
-            />
-            <audio src="/api/audio_feed" autoPlay hidden />
-          </>
+          <img 
+            src="/api/video_feed" 
+            alt="Live CCTV Feed" 
+            className="w-full h-full object-contain"
+          />
         ) : (
           <div className="flex flex-col items-center">
             <svg className="w-16 h-16 mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
