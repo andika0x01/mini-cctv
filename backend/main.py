@@ -61,7 +61,7 @@ async def open_camera():
             "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "1280x720", "-framerate", "15", "-i", "/dev/video1",
             "-f", "alsa", "-channels", "1", "-i", "hw:1,0",
             "-vf", "scale=854:480,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf:text='%{localtime} WIB':fontcolor=white:fontsize=24:x=w-tw-15:y=15:box=1:boxcolor=black@0.5:boxborderw=5",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "28", "-pix_fmt", "yuv420p",
             "-g", "15", "-keyint_min", "15", "-sc_threshold", "0",
             "-c:a", "aac", "-b:a", "64k",
             "-f", "hls", 

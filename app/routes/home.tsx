@@ -147,6 +147,7 @@ export default function Home() {
           <video 
             ref={videoRef}
             controls
+            playsInline
             autoPlay
             muted={false}
             className="w-full h-full object-contain"
