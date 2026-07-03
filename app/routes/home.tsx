@@ -17,6 +17,7 @@ export default function Home() {
   const [seekMin, setSeekMin] = useState(0);
   const [seekMax, setSeekMax] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [isLiveLocked, setIsLiveLocked] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
@@ -135,13 +136,37 @@ export default function Home() {
     <div className="relative w-screen h-screen bg-black overflow-hidden font-sans">
       
       {/* Floating Controls */}
-      <div className="absolute top-4 right-4 z-10">
+      <div className="absolute top-6 right-6 z-10 flex items-center gap-3">
+        {isOn && (
+          <button 
+            onClick={() => {
+              const newLockedState = !isLiveLocked;
+              setIsLiveLocked(newLockedState);
+              if (newLockedState && videoRef.current && videoRef.current.seekable.length > 0) {
+                videoRef.current.currentTime = videoRef.current.seekable.end(0);
+                videoRef.current.play();
+              }
+            }}
+            className={`px-5 py-2.5 rounded-full font-bold text-sm tracking-wide shadow-lg transition-all border cursor-pointer backdrop-blur-md flex items-center gap-2 ${
+              isLiveLocked 
+                ? 'border-red-500/50 bg-red-600/20 text-red-400' 
+                : 'border-white/10 bg-white/10 text-gray-300 hover:text-white'
+            }`}
+          >
+            {isLiveLocked ? (
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
+            ) : (
+              <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+            )}
+            {isLiveLocked ? 'LIVE LOCKED' : 'UNLOCK'}
+          </button>
+        )}
         <button 
           onClick={toggleCamera}
-          className={`px-4 py-2 rounded-md font-medium transition-colors border cursor-pointer bg-black/50 backdrop-blur-sm ${
+          className={`px-5 py-2.5 rounded-full font-semibold text-sm shadow-lg transition-colors border cursor-pointer backdrop-blur-md ${
             isOn 
-              ? 'border-gray-600 text-white hover:bg-black/80' 
-              : 'border-gray-600 text-white hover:bg-white hover:text-black'
+              ? 'border-white/10 bg-black/60 text-white hover:bg-black/80' 
+              : 'border-white/10 bg-white/10 text-white hover:bg-white/20'
           }`}
         >
           {isOn ? 'Turn Off' : 'Turn On'}
@@ -173,35 +198,38 @@ export default function Home() {
               }}
             />
             {/* Custom Mobile-Friendly Controls */}
-            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col gap-4">
-              <input 
-                type="range" 
-                min={seekMin} 
-                max={seekMax} 
-                step={1}
-                value={currentTime} 
-                onChange={(e) => {
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = Number(e.target.value);
-                  }
-                }}
-                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
-              />
-              <div className="flex justify-between items-center text-sm font-mono text-white">
-                <button onClick={() => videoRef.current && (videoRef.current.currentTime -= 60)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">-1m</button>
-                <button onClick={() => videoRef.current && (videoRef.current.currentTime -= 10)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">-10s</button>
+            <div className={`absolute bottom-0 left-0 right-0 px-6 pb-8 pt-24 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col gap-6 transition-all duration-500 ease-out ${isLiveLocked ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+              <div className="w-full relative group">
+                <input 
+                  type="range" 
+                  min={seekMin} 
+                  max={seekMax} 
+                  step={1}
+                  value={currentTime} 
+                  onChange={(e) => {
+                    if (videoRef.current && !isLiveLocked) {
+                      videoRef.current.currentTime = Number(e.target.value);
+                    }
+                  }}
+                  disabled={isLiveLocked}
+                  className="w-full h-2 bg-gray-600/80 rounded-full appearance-none cursor-pointer accent-white hover:h-3 transition-all outline-none"
+                />
+              </div>
+              <div className="flex justify-center items-center gap-4 text-sm font-semibold text-white">
+                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime -= 60)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-1m</button>
+                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime -= 10)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-10s</button>
                 
                 <button onClick={() => {
-                   if (videoRef.current && videoRef.current.seekable.length > 0) {
-                     videoRef.current.currentTime = videoRef.current.seekable.end(0);
-                     videoRef.current.play();
+                   if (videoRef.current) {
+                     if (videoRef.current.paused) videoRef.current.play();
+                     else videoRef.current.pause();
                    }
-                }} className="px-4 py-2 bg-red-600 rounded-full font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-transform">
-                  <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse"></div> Live
+                }} className="w-14 h-14 flex items-center justify-center bg-white text-black hover:bg-gray-200 shadow-xl rounded-full active:scale-95 transition-all ml-2 mr-2">
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
                 </button>
                 
-                <button onClick={() => videoRef.current && (videoRef.current.currentTime += 10)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">+10s</button>
-                <button onClick={() => videoRef.current && (videoRef.current.currentTime += 60)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">+1m</button>
+                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime += 10)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+10s</button>
+                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime += 60)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+1m</button>
               </div>
             </div>
           </div>
