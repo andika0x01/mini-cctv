@@ -92,7 +92,7 @@ async def open_camera():
             # Output 1: Live HLS - rolling 5-segment window for low-latency live view
             "-f", "hls",
             "-hls_time", "1",
-            "-hls_list_size", "5",
+            "-hls_list_size", "300",
             "-hls_flags", "delete_segments+independent_segments",
             "-hls_segment_filename", f"{data_dir}/live_seg_%05d.ts",
             f"{data_dir}/live.m3u8",

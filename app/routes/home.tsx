@@ -18,6 +18,10 @@ export default function Home() {
   const [seekMax, setSeekMax] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLiveLocked, setIsLiveLocked] = useState(true);
+  const isLiveLockedRef = useRef(isLiveLocked);
+  useEffect(() => {
+    isLiveLockedRef.current = isLiveLocked;
+  }, [isLiveLocked]);
   const [isDragging, setIsDragging] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -59,7 +63,8 @@ export default function Home() {
         const hls = new Hls({
           // Live edge sync: stay within 2 segments of live
           liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 4,
+          // Dynamically controlled to allow DVR rewind
+          liveMaxLatencyDurationCount: Infinity,
           // Buffer limits to avoid accumulating delay
           maxBufferLength: 4,
           maxMaxBufferLength: 8,
@@ -91,9 +96,14 @@ export default function Home() {
             if (video.currentTime === lastTime) {
               stallCount++;
               if (stallCount >= 3) {
-                console.warn("Stream stalled, seeking to live edge…");
-                if (hls.liveSyncPosition != null) {
-                  video.currentTime = hls.liveSyncPosition;
+                if (isLiveLockedRef.current) {
+                  console.warn("Stream stalled, seeking to live edge…");
+                  if (hls.liveSyncPosition != null) {
+                    video.currentTime = hls.liveSyncPosition;
+                  }
+                } else {
+                  console.warn("Stream stalled in past video, nudging slightly…");
+                  video.currentTime += 0.1;
                 }
                 video.play().catch(console.error);
                 stallCount = 0;
@@ -147,6 +157,13 @@ export default function Home() {
       }
     };
   }, [isOn]);
+
+  useEffect(() => {
+    if (hlsRef.current) {
+      // Toggle HLS auto-sync to live edge based on lock state
+      hlsRef.current.config.liveMaxLatencyDurationCount = isLiveLocked ? 4 : Infinity;
+    }
+  }, [isLiveLocked]);
 
   const toggleCamera = async () => {
     const newState = !isOn;
