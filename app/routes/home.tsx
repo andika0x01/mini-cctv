@@ -19,6 +19,7 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isLiveLocked, setIsLiveLocked] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
@@ -184,6 +185,8 @@ export default function Home() {
               autoPlay
               muted={false}
               className="w-full h-full object-contain"
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
               onTimeUpdate={(e) => {
                 if (!isDragging) {
                   setCurrentTime(e.currentTarget.currentTime);
@@ -226,20 +229,50 @@ export default function Home() {
                 />
               </div>
               <div className="flex justify-center items-center gap-4 text-sm font-semibold text-white">
-                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime -= 60)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-1m</button>
-                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime -= 10)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-10s</button>
+                <button disabled={isLiveLocked} onClick={() => {
+                  if (videoRef.current) {
+                    let t = videoRef.current.currentTime - 60;
+                    if (videoRef.current.seekable.length > 0) t = Math.max(videoRef.current.seekable.start(0), t);
+                    videoRef.current.currentTime = t;
+                  }
+                }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-1m</button>
+                
+                <button disabled={isLiveLocked} onClick={() => {
+                  if (videoRef.current) {
+                    let t = videoRef.current.currentTime - 10;
+                    if (videoRef.current.seekable.length > 0) t = Math.max(videoRef.current.seekable.start(0), t);
+                    videoRef.current.currentTime = t;
+                  }
+                }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-10s</button>
                 
                 <button onClick={() => {
                    if (videoRef.current) {
                      if (videoRef.current.paused) videoRef.current.play();
                      else videoRef.current.pause();
                    }
-                }} className="w-14 h-14 flex items-center justify-center bg-white text-black hover:bg-gray-200 shadow-xl rounded-full active:scale-95 transition-all ml-2 mr-2">
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                }} className="w-14 h-14 flex items-center justify-center bg-white text-black hover:bg-gray-200 shadow-xl rounded-full active:scale-95 transition-all mx-2">
+                  {isPlaying ? (
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                  ) : (
+                    <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                  )}
                 </button>
                 
-                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime += 10)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+10s</button>
-                <button disabled={isLiveLocked} onClick={() => videoRef.current && (videoRef.current.currentTime += 60)} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+1m</button>
+                <button disabled={isLiveLocked} onClick={() => {
+                  if (videoRef.current) {
+                    let t = videoRef.current.currentTime + 10;
+                    if (videoRef.current.seekable.length > 0) t = Math.min(videoRef.current.seekable.end(0), t);
+                    videoRef.current.currentTime = t;
+                  }
+                }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+10s</button>
+                
+                <button disabled={isLiveLocked} onClick={() => {
+                  if (videoRef.current) {
+                    let t = videoRef.current.currentTime + 60;
+                    if (videoRef.current.seekable.length > 0) t = Math.min(videoRef.current.seekable.end(0), t);
+                    videoRef.current.currentTime = t;
+                  }
+                }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+1m</button>
               </div>
             </div>
           </div>

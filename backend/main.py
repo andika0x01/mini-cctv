@@ -8,12 +8,28 @@ import os
 import signal
 import sys
 import subprocess
+import time
+import glob
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+async def cleanup_loop():
+    while True:
+        try:
+            now = time.time()
+            # 12 hours = 43200 seconds
+            for f in glob.glob("../.cctv-data/*.ts"):
+                if os.stat(f).st_mtime < now - 43200:
+                    os.remove(f)
+        except Exception:
+            pass
+        await asyncio.sleep(600)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    cleanup_task = asyncio.create_task(cleanup_loop())
     yield
+    cleanup_task.cancel()
     # Graceful shutdown: ensure ffmpeg processes are killed
     await close_camera()
 
@@ -67,7 +83,8 @@ async def open_camera():
             "-f", "hls", 
             "-hls_time", "1", 
             "-hls_list_size", "43200",  # 12 hours * 60 min * 60 sec / 1 sec per segment
-            "-hls_flags", "append_list+delete_segments",
+            "-hls_playlist_type", "event",
+            "-hls_flags", "append_list",
             "-hls_segment_filename", f"{data_dir}/segment_%05d.ts",
             f"{data_dir}/live.m3u8",
             stdout=asyncio.subprocess.PIPE,
