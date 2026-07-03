@@ -18,6 +18,7 @@ export default function Home() {
   const [seekMax, setSeekMax] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLiveLocked, setIsLiveLocked] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
@@ -136,7 +137,7 @@ export default function Home() {
     <div className="relative w-screen h-screen bg-black overflow-hidden font-sans">
       
       {/* Floating Controls */}
-      <div className="absolute top-6 right-6 z-10 flex items-center gap-3">
+      <div className="absolute top-6 left-6 z-10 flex items-center gap-3">
         {isOn && (
           <button 
             onClick={() => {
@@ -184,7 +185,9 @@ export default function Home() {
               muted={false}
               className="w-full h-full object-contain"
               onTimeUpdate={(e) => {
-                setCurrentTime(e.currentTarget.currentTime);
+                if (!isDragging) {
+                  setCurrentTime(e.currentTarget.currentTime);
+                }
                 if (e.currentTarget.seekable.length > 0) {
                   setSeekMin(e.currentTarget.seekable.start(0));
                   setSeekMax(e.currentTarget.seekable.end(0));
@@ -206,9 +209,16 @@ export default function Home() {
                   max={seekMax} 
                   step={1}
                   value={currentTime} 
-                  onChange={(e) => {
+                  onPointerDown={() => setIsDragging(true)}
+                  onPointerUp={(e) => {
+                    setIsDragging(false);
                     if (videoRef.current && !isLiveLocked) {
-                      videoRef.current.currentTime = Number(e.target.value);
+                      videoRef.current.currentTime = Number(e.currentTarget.value);
+                    }
+                  }}
+                  onChange={(e) => {
+                    if (isDragging) {
+                      setCurrentTime(Number(e.target.value));
                     }
                   }}
                   disabled={isLiveLocked}
