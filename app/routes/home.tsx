@@ -57,9 +57,22 @@ export default function Home() {
 
       if (Hls.isSupported()) {
         const hls = new Hls({
-          liveSyncDurationCount: 1, 
+          // Live edge sync: stay within 2 segments of live
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 4,
+          // Buffer limits to avoid accumulating delay
+          maxBufferLength: 4,
+          maxMaxBufferLength: 8,
+          maxBufferSize: 10 * 1000 * 1000, // 10MB
+          // Aggressive manifest reload for live
+          manifestLoadingTimeOut: 5000,
+          manifestLoadingMaxRetry: 3,
+          levelLoadingTimeOut: 5000,
+          levelLoadingMaxRetry: 3,
           enableWorker: true,
           lowLatencyMode: true,
+          // Start loading from the most recent segment
+          startFragPrefetch: true,
         });
         hlsRef.current = hls;
         
@@ -69,6 +82,28 @@ export default function Home() {
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(console.error);
         });
+
+        // Auto-recover from stalls: if video stops progressing, jump to live edge
+        let lastTime = -1;
+        let stallCount = 0;
+        const stallTimer = setInterval(() => {
+          if (!video.paused && video.readyState >= 2) {
+            if (video.currentTime === lastTime) {
+              stallCount++;
+              if (stallCount >= 3) {
+                console.warn("Stream stalled, seeking to live edge…");
+                if (hls.liveSyncPosition != null) {
+                  video.currentTime = hls.liveSyncPosition;
+                }
+                video.play().catch(console.error);
+                stallCount = 0;
+              }
+            } else {
+              stallCount = 0;
+            }
+            lastTime = video.currentTime;
+          }
+        }, 1000);
         
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (data.fatal) {
@@ -87,6 +122,9 @@ export default function Home() {
             }
           }
         });
+
+        // Store timer cleanup reference
+        (hls as any)._stallTimer = stallTimer;
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;
         video.addEventListener("loadedmetadata", () => {
@@ -100,6 +138,10 @@ export default function Home() {
     return () => {
       isCancelled = true;
       if (hlsRef.current) {
+        // Clear the stall detection timer before destroying
+        if ((hlsRef.current as any)._stallTimer) {
+          clearInterval((hlsRef.current as any)._stallTimer);
+        }
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
