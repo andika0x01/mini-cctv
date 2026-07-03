@@ -12,6 +12,11 @@ export function meta({}: Route.MetaArgs) {
 export default function Home() {
   const [isOn, setIsOn] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Custom Controls State
+  const [seekMin, setSeekMin] = useState(0);
+  const [seekMax, setSeekMax] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
@@ -144,14 +149,60 @@ export default function Home() {
       {/* Video Feed */}
       <div className="w-full h-full flex items-center justify-center">
         {isOn ? (
-          <video 
-            ref={videoRef}
-            controls
-            playsInline
-            autoPlay
-            muted={false}
-            className="w-full h-full object-contain"
-          />
+          <div className="relative w-full h-full flex flex-col group">
+            <video 
+              ref={videoRef}
+              playsInline
+              autoPlay
+              muted={false}
+              className="w-full h-full object-contain"
+              onTimeUpdate={(e) => {
+                setCurrentTime(e.currentTarget.currentTime);
+                if (e.currentTarget.seekable.length > 0) {
+                  setSeekMin(e.currentTarget.seekable.start(0));
+                  setSeekMax(e.currentTarget.seekable.end(0));
+                }
+              }}
+              onClick={() => {
+                if (videoRef.current) {
+                  if (videoRef.current.paused) videoRef.current.play();
+                  else videoRef.current.pause();
+                }
+              }}
+            />
+            {/* Custom Mobile-Friendly Controls */}
+            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col gap-4">
+              <input 
+                type="range" 
+                min={seekMin} 
+                max={seekMax} 
+                step={1}
+                value={currentTime} 
+                onChange={(e) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = Number(e.target.value);
+                  }
+                }}
+                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between items-center text-sm font-mono text-white">
+                <button onClick={() => videoRef.current && (videoRef.current.currentTime -= 60)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">-1m</button>
+                <button onClick={() => videoRef.current && (videoRef.current.currentTime -= 10)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">-10s</button>
+                
+                <button onClick={() => {
+                   if (videoRef.current && videoRef.current.seekable.length > 0) {
+                     videoRef.current.currentTime = videoRef.current.seekable.end(0);
+                     videoRef.current.play();
+                   }
+                }} className="px-4 py-2 bg-red-600 rounded-full font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-transform">
+                  <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse"></div> Live
+                </button>
+                
+                <button onClick={() => videoRef.current && (videoRef.current.currentTime += 10)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">+10s</button>
+                <button onClick={() => videoRef.current && (videoRef.current.currentTime += 60)} className="px-3 py-2 bg-white/20 rounded active:bg-white/40">+1m</button>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="flex flex-col items-center">
             <svg className="w-16 h-16 mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
