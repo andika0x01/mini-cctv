@@ -137,6 +137,16 @@ export default function Home() {
       
       {/* Floating Controls */}
       <div className="absolute top-6 left-6 z-10 flex items-center gap-3">
+        <button 
+          onClick={toggleCamera}
+          className={`px-5 py-2.5 rounded-full font-semibold text-sm shadow-lg transition-colors border cursor-pointer backdrop-blur-md ${
+            isOn 
+              ? 'border-white/10 bg-black/60 text-white hover:bg-black/80' 
+              : 'border-white/10 bg-white/10 text-white hover:bg-white/20'
+          }`}
+        >
+          {isOn ? 'Turn Off' : 'Turn On'}
+        </button>
         {isOn && (
           <button 
             onClick={() => {
@@ -161,16 +171,6 @@ export default function Home() {
             {isLiveLocked ? 'LIVE LOCKED' : 'UNLOCK'}
           </button>
         )}
-        <button 
-          onClick={toggleCamera}
-          className={`px-5 py-2.5 rounded-full font-semibold text-sm shadow-lg transition-colors border cursor-pointer backdrop-blur-md ${
-            isOn 
-              ? 'border-white/10 bg-black/60 text-white hover:bg-black/80' 
-              : 'border-white/10 bg-white/10 text-white hover:bg-white/20'
-          }`}
-        >
-          {isOn ? 'Turn Off' : 'Turn On'}
-        </button>
       </div>
 
       {/* Video Feed */}
