@@ -1,5 +1,6 @@
 import type { Route } from "./+types/home";
 import { useState, useEffect, useRef } from "react";
+import Hls from "hls.js";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -11,9 +12,8 @@ export function meta({}: Route.MetaArgs) {
 export default function Home() {
   const [isOn, setIsOn] = useState(false);
   const [loading, setLoading] = useState(true);
-  
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   useEffect(() => {
     fetch("/api/status")
@@ -29,60 +29,71 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (isOn) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass({ sampleRate: 16000 });
-      audioCtxRef.current = audioCtx;
-      let startTime = 0;
+    let isCancelled = false;
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/audio_ws`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+    const initVideo = async () => {
+      if (!isOn || !videoRef.current) return;
+      const video = videoRef.current;
+      const src = "/data/live.m3u8";
+
+      // Wait until ffmpeg creates the live.m3u8 file
+      while (!isCancelled) {
+        try {
+          const res = await fetch(src, { method: "HEAD", cache: "no-store" });
+          if (res.ok) break;
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
       
-      ws.binaryType = "arraybuffer";
-      ws.onmessage = (event) => {
-        if (!audioCtxRef.current) return;
-        
-        const pcm16 = new Int16Array(event.data);
-        const float32 = new Float32Array(pcm16.length);
-        for (let i = 0; i < pcm16.length; i++) {
-          float32[i] = pcm16[i] / 32768.0;
-        }
-        
-        const buffer = audioCtxRef.current.createBuffer(1, float32.length, 16000);
-        buffer.getChannelData(0).set(float32);
-        
-        const source = audioCtxRef.current.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtxRef.current.destination);
-        
-        if (startTime < audioCtxRef.current.currentTime) {
-            startTime = audioCtxRef.current.currentTime;
-        }
-        source.start(startTime);
-        startTime += buffer.duration;
-      };
+      if (isCancelled) return;
 
-    } else {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          liveSyncDurationCount: 3, 
+          enableWorker: true,
+          lowLatencyMode: true,
+        });
+        hlsRef.current = hls;
+        
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(console.error);
+        });
+        
+        hls.on(Hls.Events.ERROR, function (event, data) {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.error("fatal network error encountered, try to recover");
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.error("fatal media error encountered, try to recover");
+                hls.recoverMediaError();
+                break;
+              default:
+                hls.destroy();
+                break;
+            }
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = src;
+        video.addEventListener("loadedmetadata", () => {
+          video.play().catch(console.error);
+        });
       }
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close();
-        audioCtxRef.current = null;
-      }
-    }
+    };
+
+    initVideo();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close();
-        audioCtxRef.current = null;
+      isCancelled = true;
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
       }
     };
   }, [isOn]);
@@ -133,9 +144,11 @@ export default function Home() {
       {/* Video Feed */}
       <div className="w-full h-full flex items-center justify-center">
         {isOn ? (
-          <img 
-            src="/api/video_feed" 
-            alt="Live CCTV Feed" 
+          <video 
+            ref={videoRef}
+            controls
+            autoPlay
+            muted={false}
             className="w-full h-full object-contain"
           />
         ) : (

@@ -1,9 +1,15 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import ctypes
+import os
+import signal
+import sys
+import subprocess
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,186 +33,56 @@ class CameraState:
     def __init__(self):
         self.is_on = False
         self.process = None
-        self.audio_process = None
-        self.audio_task = None
-        self.video_task = None
 
 state = CameraState()
-active_websockets = set()
-active_video_queues = set()
 
-async def video_broadcaster():
+def set_pdeathsig():
     try:
-        buffer = bytearray()
-        boundary = b'--ffmpeg\r\n'
-        while state.is_on:
-            if state.process is None:
-                await asyncio.sleep(0.1)
-                continue
-                
-            chunk = await state.process.stdout.read(65536)
-            if not chunk:
-                await asyncio.sleep(0.1)
-                continue
-                
-            buffer.extend(chunk)
-            
-            while True:
-                idx = buffer.find(boundary, len(boundary))
-                if idx == -1:
-                    break
-                    
-                frame = bytes(buffer[:idx])
-                buffer = buffer[idx:]
-                
-                dead_queues = set()
-                for q in active_video_queues:
-                    try:
-                        if q.full():
-                            # If client is slow, clear the queue to prevent glitching/memory leak
-                            while not q.empty():
-                                q.get_nowait()
-                        q.put_nowait(frame)
-                    except Exception:
-                        dead_queues.add(q)
-                        
-                for q in dead_queues:
-                    active_video_queues.discard(q)
-    except asyncio.CancelledError:
-        pass
-
-async def audio_broadcaster():
-    try:
-        while state.is_on:
-            if state.audio_process is None:
-                await asyncio.sleep(0.1)
-                continue
-                
-            chunk = await state.audio_process.stdout.read(4096)
-            if not chunk:
-                await asyncio.sleep(0.1)
-                continue
-                
-            dead_sockets = set()
-            for ws in active_websockets:
-                try:
-                    await ws.send_bytes(chunk)
-                except Exception:
-                    dead_sockets.add(ws)
-                    
-            for ws in dead_sockets:
-                active_websockets.discard(ws)
-    except asyncio.CancelledError:
+        libc = ctypes.CDLL("libc.so.6")
+        PR_SET_PDEATHSIG = 1
+        libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+    except Exception:
         pass
 
 async def open_camera():
     if state.process is None:
+        # Restore auto-exposure so the camera can adjust brightness in low light
+        try:
+            subprocess.run(["v4l2-ctl", "-d", "/dev/video1", "-c", "auto_exposure=3"], check=False)
+        except Exception as e:
+            print(f"Warning: Failed to set v4l2-ctl exposure: {e}", file=sys.stderr)
+            
+        # Ensure data directory exists
+        data_dir = "../.cctv-data"
+        os.makedirs(data_dir, exist_ok=True)
+                
         state.process = await asyncio.create_subprocess_exec(
             "ffmpeg",
-            "-fflags", "nobuffer",
-            "-flags", "low_delay",
-            "-f", "v4l2",
-            "-input_format", "mjpeg",
-            "-video_size", "1280x720",
-            "-framerate", "30",
-            "-i", "/dev/video1",
-            "-c:v", "copy",
-            "-f", "mpjpeg",
-            "-",
+            "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "1280x720", "-framerate", "15", "-i", "/dev/video1",
+            "-f", "alsa", "-channels", "1", "-i", "hw:1,0",
+            "-vf", "scale=854:480",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p",
+            "-g", "15", "-keyint_min", "15", "-sc_threshold", "0",
+            "-c:a", "aac", "-b:a", "64k",
+            "-f", "hls", 
+            "-hls_time", "1", 
+            "-hls_list_size", "43200",  # 12 hours * 60 min * 60 sec / 1 sec per segment
+            "-hls_flags", "append_list+delete_segments",
+            "-hls_segment_filename", f"{data_dir}/segment_%05d.ts",
+            f"{data_dir}/live.m3u8",
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL
+            stderr=sys.stderr,
+            preexec_fn=set_pdeathsig
         )
-    if state.audio_process is None:
-        state.audio_process = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-fflags", "nobuffer",
-            "-flags", "low_delay",
-            "-f", "alsa",
-            "-channels", "1",
-            "-i", "hw:1,0",
-            "-af", "afftdn",           
-            "-c:a", "pcm_s16le",       
-            "-ar", "16000",            
-            "-f", "s16le",
-            "-",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL
-        )
-    if state.audio_task is None:
-        state.audio_task = asyncio.create_task(audio_broadcaster())
-    if state.video_task is None:
-        state.video_task = asyncio.create_task(video_broadcaster())
 
 async def close_camera():
     if state.process is not None:
         try:
-            state.process.terminate()
+            state.process.kill()
             await state.process.wait()
         except Exception:
             pass
         state.process = None
-        
-    if state.audio_process is not None:
-        try:
-            state.audio_process.terminate()
-            await state.audio_process.wait()
-        except Exception:
-            pass
-        state.audio_process = None
-        
-    if state.audio_task is not None:
-        state.audio_task.cancel()
-        state.audio_task = None
-        
-    if state.video_task is not None:
-        state.video_task.cancel()
-        state.video_task = None
-
-async def generate_frames(request: Request):
-    # Keep queue size extremely small (2 frames max) to prevent ANY buffering delay.
-    # If the network drops, we skip frames instantly instead of waiting 1 second.
-    q = asyncio.Queue(maxsize=2)
-    active_video_queues.add(q)
-    try:
-        while state.is_on:
-            if await request.is_disconnected():
-                break
-            frame = await q.get()
-            yield frame
-    except asyncio.CancelledError:
-        pass
-    finally:
-        active_video_queues.discard(q)
-
-@app.get("/api/video_feed")
-async def video_feed(request: Request):
-    # Wait up to 5 seconds for camera to turn on (useful for optimistic UI requests)
-    for _ in range(50):
-        if state.is_on and state.process is not None:
-            break
-        await asyncio.sleep(0.1)
-        
-    if not state.is_on:
-        return {"error": "Camera is currently off."}
-    return StreamingResponse(generate_frames(request), media_type="multipart/x-mixed-replace; boundary=ffmpeg")
-
-@app.websocket("/api/audio_ws")
-async def audio_ws(websocket: WebSocket):
-    await websocket.accept()
-    active_websockets.add(websocket)
-    try:
-        # Keep the connection alive, the broadcaster sends the data
-        while True:
-            # We must await something to keep the connection open and detect client disconnects
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        active_websockets.discard(websocket)
-    except Exception:
-        active_websockets.discard(websocket)
-
-import os
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 class ToggleRequest(BaseModel):
     is_on: bool
@@ -223,6 +99,10 @@ async def toggle_camera(req: ToggleRequest):
 @app.get("/api/status")
 async def get_status():
     return {"is_on": state.is_on}
+
+# Mount CCTV data directory for HLS
+os.makedirs("../.cctv-data", exist_ok=True)
+app.mount("/data", StaticFiles(directory="../.cctv-data"), name="data")
 
 # Mount React SPA build directory (Must be placed AFTER all API routes)
 app.mount("/assets", StaticFiles(directory="../build/client/assets"), name="assets")
