@@ -58,8 +58,6 @@ export default function Home() {
       if (Hls.isSupported()) {
         const hls = new Hls({
           liveSyncDurationCount: 1, 
-          liveMaxLatencyDurationCount: 2,
-          maxLiveSyncPlaybackRate: 2,
           enableWorker: true,
           lowLatencyMode: true,
         });
