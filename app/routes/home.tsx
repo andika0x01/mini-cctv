@@ -9,6 +9,15 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
+function formatTime(seconds: number) {
+  if (!seconds || isNaN(seconds)) return "0:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export default function Home() {
   const [isOn, setIsOn] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -17,11 +26,7 @@ export default function Home() {
   const [seekMin, setSeekMin] = useState(0);
   const [seekMax, setSeekMax] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [isLiveLocked, setIsLiveLocked] = useState(true);
-  const isLiveLockedRef = useRef(isLiveLocked);
-  useEffect(() => {
-    isLiveLockedRef.current = isLiveLocked;
-  }, [isLiveLocked]);
+  const [isScreenLocked, setIsScreenLocked] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,14 +66,13 @@ export default function Home() {
 
       if (Hls.isSupported()) {
         const hls = new Hls({
-          // Live edge sync: stay within 2 segments of live
-          liveSyncDurationCount: 2,
-          // Dynamically controlled to allow DVR rewind
+          // Live edge sync: stay within 3 segments of live for smoother playback
+          liveSyncDurationCount: 3,
           liveMaxLatencyDurationCount: Infinity,
-          // Buffer limits to avoid accumulating delay
-          maxBufferLength: 4,
-          maxMaxBufferLength: 8,
-          maxBufferSize: 10 * 1000 * 1000, // 10MB
+          // Larger buffer limits to prevent stuttering
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          maxBufferSize: 50 * 1000 * 1000, // 50MB
           // Aggressive manifest reload for live
           manifestLoadingTimeOut: 5000,
           manifestLoadingMaxRetry: 3,
@@ -88,33 +92,6 @@ export default function Home() {
           video.play().catch(console.error);
         });
 
-        // Auto-recover from stalls: if video stops progressing, jump to live edge
-        let lastTime = -1;
-        let stallCount = 0;
-        const stallTimer = setInterval(() => {
-          if (!video.paused && video.readyState >= 2) {
-            if (video.currentTime === lastTime) {
-              stallCount++;
-              if (stallCount >= 3) {
-                if (isLiveLockedRef.current) {
-                  console.warn("Stream stalled, seeking to live edge…");
-                  if (hls.liveSyncPosition != null) {
-                    video.currentTime = hls.liveSyncPosition;
-                  }
-                } else {
-                  console.warn("Stream stalled in past video, nudging slightly…");
-                  video.currentTime += 0.1;
-                }
-                video.play().catch(console.error);
-                stallCount = 0;
-              }
-            } else {
-              stallCount = 0;
-            }
-            lastTime = video.currentTime;
-          }
-        }, 1000);
-        
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (data.fatal) {
             switch (data.type) {
@@ -133,8 +110,7 @@ export default function Home() {
           }
         });
 
-        // Store timer cleanup reference
-        (hls as any)._stallTimer = stallTimer;
+
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;
         video.addEventListener("loadedmetadata", () => {
@@ -148,22 +124,11 @@ export default function Home() {
     return () => {
       isCancelled = true;
       if (hlsRef.current) {
-        // Clear the stall detection timer before destroying
-        if ((hlsRef.current as any)._stallTimer) {
-          clearInterval((hlsRef.current as any)._stallTimer);
-        }
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
   }, [isOn]);
-
-  useEffect(() => {
-    if (hlsRef.current) {
-      // Toggle HLS auto-sync to live edge based on lock state
-      hlsRef.current.config.liveMaxLatencyDurationCount = isLiveLocked ? 4 : Infinity;
-    }
-  }, [isLiveLocked]);
 
   const toggleCamera = async () => {
     const newState = !isOn;
@@ -209,25 +174,25 @@ export default function Home() {
         {isOn && (
           <button 
             onClick={() => {
-              const newLockedState = !isLiveLocked;
-              setIsLiveLocked(newLockedState);
+              const newLockedState = !isScreenLocked;
+              setIsScreenLocked(newLockedState);
               if (newLockedState && videoRef.current && videoRef.current.seekable.length > 0) {
                 videoRef.current.currentTime = videoRef.current.seekable.end(0);
-                videoRef.current.play();
+                if (videoRef.current.paused) videoRef.current.play();
               }
             }}
             className={`px-5 py-2.5 rounded-full font-bold text-sm tracking-wide shadow-lg transition-all border cursor-pointer backdrop-blur-md flex items-center gap-2 ${
-              isLiveLocked 
+              isScreenLocked 
                 ? 'border-red-500/50 bg-red-600/20 text-red-400' 
                 : 'border-white/10 bg-white/10 text-gray-300 hover:text-white'
             }`}
           >
-            {isLiveLocked ? (
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
+            {isScreenLocked ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
             ) : (
-              <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              <svg className="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
             )}
-            {isLiveLocked ? 'LIVE LOCKED' : 'UNLOCK'}
+            {isScreenLocked ? 'LOCKED' : 'UNLOCK'}
           </button>
         )}
       </div>
@@ -254,6 +219,7 @@ export default function Home() {
                 }
               }}
               onClick={() => {
+                if (isScreenLocked) return;
                 if (videoRef.current) {
                   if (videoRef.current.paused) videoRef.current.play();
                   else videoRef.current.pause();
@@ -261,8 +227,8 @@ export default function Home() {
               }}
             />
             {/* Custom Mobile-Friendly Controls */}
-            <div className={`absolute bottom-0 left-0 right-0 px-6 pb-8 pt-24 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col gap-6 transition-all duration-500 ease-out ${isLiveLocked ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
-              <div className="w-full relative group">
+            <div className={`absolute bottom-0 left-0 right-0 px-6 pb-8 pt-24 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col gap-6 transition-all duration-500 ease-out opacity-100 translate-y-0 ${isScreenLocked ? 'pointer-events-none' : ''}`}>
+              <div className="w-full relative group flex flex-col gap-1">
                 <input 
                   type="range" 
                   min={seekMin} 
@@ -272,7 +238,7 @@ export default function Home() {
                   onPointerDown={() => setIsDragging(true)}
                   onPointerUp={(e) => {
                     setIsDragging(false);
-                    if (videoRef.current && !isLiveLocked) {
+                    if (videoRef.current && !isScreenLocked) {
                       videoRef.current.currentTime = Number(e.currentTarget.value);
                     }
                   }}
@@ -281,12 +247,19 @@ export default function Home() {
                       setCurrentTime(Number(e.target.value));
                     }
                   }}
-                  disabled={isLiveLocked}
+                  disabled={isScreenLocked}
                   className="w-full h-2 bg-gray-600/80 rounded-full appearance-none cursor-pointer accent-white hover:h-3 transition-all outline-none"
                 />
+                <div className="flex justify-between text-xs text-gray-300 font-mono px-1">
+                  <span>{formatTime(currentTime)}</span>
+                  <span className="flex gap-2">
+                    {!isScreenLocked && <span className="text-red-400">-{formatTime(seekMax - currentTime)}</span>}
+                    <span>{formatTime(seekMax)}</span>
+                  </span>
+                </div>
               </div>
               <div className="flex justify-center items-center gap-4 text-sm font-semibold text-white">
-                <button disabled={isLiveLocked} onClick={() => {
+                <button disabled={isScreenLocked} onClick={() => {
                   if (videoRef.current) {
                     let t = videoRef.current.currentTime - 60;
                     if (videoRef.current.seekable.length > 0) t = Math.max(videoRef.current.seekable.start(0), t);
@@ -294,7 +267,7 @@ export default function Home() {
                   }
                 }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-1m</button>
                 
-                <button disabled={isLiveLocked} onClick={() => {
+                <button disabled={isScreenLocked} onClick={() => {
                   if (videoRef.current) {
                     let t = videoRef.current.currentTime - 10;
                     if (videoRef.current.seekable.length > 0) t = Math.max(videoRef.current.seekable.start(0), t);
@@ -315,7 +288,7 @@ export default function Home() {
                   )}
                 </button>
                 
-                <button disabled={isLiveLocked} onClick={() => {
+                <button disabled={isScreenLocked} onClick={() => {
                   if (videoRef.current) {
                     let t = videoRef.current.currentTime + 10;
                     if (videoRef.current.seekable.length > 0) t = Math.min(videoRef.current.seekable.end(0), t);
@@ -323,7 +296,7 @@ export default function Home() {
                   }
                 }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">+10s</button>
                 
-                <button disabled={isLiveLocked} onClick={() => {
+                <button disabled={isScreenLocked} onClick={() => {
                   if (videoRef.current) {
                     let t = videoRef.current.currentTime + 60;
                     if (videoRef.current.seekable.length > 0) t = Math.min(videoRef.current.seekable.end(0), t);

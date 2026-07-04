@@ -17,13 +17,9 @@ async def cleanup_loop():
     while True:
         try:
             now = time.time()
-            # Keep recording segments for 12 hours, delete older ones
-            for f in glob.glob("../.cctv-data/rec_*.ts"):
-                if os.stat(f).st_mtime < now - 43200:
-                    os.remove(f)
-            # Live HLS segments older than 5 minutes are stale, clean them up too
+            # Clean up orphaned live HLS segments older than 12 hours
             for f in glob.glob("../.cctv-data/live_seg_*.ts"):
-                if os.stat(f).st_mtime < now - 300:
+                if os.stat(f).st_mtime < now - 43200:
                     os.remove(f)
         except Exception:
             pass
@@ -85,24 +81,18 @@ async def open_camera():
             "-filter_complex",
             "[0:v]scale=854:480,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf:text='%{localtime} WIB':fontcolor=white:fontsize=24:x=w-tw-15:y=15:box=1:boxcolor=black@0.5:boxborderw=5[vout]",
             "-map", "[vout]", "-map", "1:a",
-            # Video codec shared for both outputs
+            # Video and audio codec
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "28", "-pix_fmt", "yuv420p",
             "-g", "15", "-keyint_min", "15", "-sc_threshold", "0",
             "-c:a", "aac", "-b:a", "64k",
-            # Output 1: Live HLS - rolling 5-segment window for low-latency live view
+            # Unified Output: Live HLS with 12-hour DVR window
             "-f", "hls",
-            "-hls_time", "1",
-            "-hls_list_size", "300",
-            "-hls_flags", "delete_segments+independent_segments",
-            "-hls_segment_filename", f"{data_dir}/live_seg_%05d.ts",
-            f"{data_dir}/live.m3u8",
-            # Output 2: Recording - individual segment files for DVR/playback
-            "-f", "segment",
-            "-segment_time", "60",
-            "-segment_format", "mpegts",
-            "-segment_atclocktime", "1",
+            "-hls_time", "2",
+            "-hls_list_size", "21600",
+            "-hls_flags", "append_list+delete_segments+independent_segments+discont_start",
             "-strftime", "1",
-            f"{data_dir}/rec_%Y%m%d_%H%M%S.ts",
+            "-hls_segment_filename", f"{data_dir}/live_seg_%Y%m%d_%H%M%S.ts",
+            f"{data_dir}/live.m3u8",
             stdout=asyncio.subprocess.PIPE,
             stderr=sys.stderr,
             preexec_fn=set_pdeathsig
