@@ -87,9 +87,9 @@ async def open_camera():
             "-c:a", "aac", "-b:a", "64k",
             # Unified Output: Live HLS with 12-hour DVR window
             "-f", "hls",
-            "-hls_time", "2",
-            "-hls_list_size", "21600",
-            "-hls_flags", "append_list+delete_segments+independent_segments+discont_start",
+            "-hls_time", "1",
+            "-hls_list_size", "43200",
+            "-hls_flags", "append_list+delete_segments+independent_segments+discont_start+split_by_time",
             "-strftime", "1",
             "-hls_segment_filename", f"{data_dir}/live_seg_%Y%m%d_%H%M%S.ts",
             f"{data_dir}/live.m3u8",

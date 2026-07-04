@@ -18,6 +18,20 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function isPositionStale(video: HTMLVideoElement): boolean {
+  if (video.seekable.length === 0) return false;
+  const start = video.seekable.start(0);
+  const end = video.seekable.end(0);
+  // stale if position outside seekable or more than 0.5s behind live edge when locked
+  return video.currentTime < start || video.currentTime > end - 0.5;
+}
+
+function jumpToLiveEdge(video: HTMLVideoElement) {
+  if (video.seekable.length > 0) {
+    video.currentTime = video.seekable.end(0);
+  }
+}
+
 export default function Home() {
   const [isOn, setIsOn] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -66,12 +80,12 @@ export default function Home() {
 
       if (Hls.isSupported()) {
         const hls = new Hls({
-          // Live edge sync: stay within 3 segments of live for smoother playback
-          liveSyncDurationCount: 3,
+          // Live edge sync: stay within 1 segment of live for smoother playback
+          liveSyncDurationCount: 2,
           liveMaxLatencyDurationCount: Infinity,
-          // Larger buffer limits to prevent stuttering
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
+          // Smaller buffer limits for live-only view
+          maxBufferLength: 10,
+          maxMaxBufferLength: 20,
           maxBufferSize: 50 * 1000 * 1000, // 50MB
           // Aggressive manifest reload for live
           manifestLoadingTimeOut: 5000,
@@ -93,6 +107,14 @@ export default function Home() {
         });
 
         hls.on(Hls.Events.ERROR, function (event, data) {
+          if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+            console.warn("Buffer stalled, jumping to live edge");
+            if (videoRef.current) {
+              jumpToLiveEdge(videoRef.current);
+              videoRef.current.play().catch(console.error);
+            }
+            return;
+          }
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
@@ -129,6 +151,22 @@ export default function Home() {
       }
     };
   }, [isOn]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && videoRef.current && isOn) {
+        const video = videoRef.current;
+        if (isScreenLocked || isPositionStale(video)) {
+          jumpToLiveEdge(video);
+        }
+        if (video.paused) {
+          video.play().catch(console.error);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isOn, isScreenLocked]);
 
   const toggleCamera = async () => {
     const newState = !isOn;
@@ -176,8 +214,8 @@ export default function Home() {
             onClick={() => {
               const newLockedState = !isScreenLocked;
               setIsScreenLocked(newLockedState);
-              if (newLockedState && videoRef.current && videoRef.current.seekable.length > 0) {
-                videoRef.current.currentTime = videoRef.current.seekable.end(0);
+              if (newLockedState && videoRef.current) {
+                jumpToLiveEdge(videoRef.current);
                 if (videoRef.current.paused) videoRef.current.play();
               }
             }}
@@ -276,9 +314,15 @@ export default function Home() {
                 }} className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md rounded-full active:scale-95 transition-all">-10s</button>
                 
                 <button onClick={() => {
-                   if (videoRef.current) {
-                     if (videoRef.current.paused) videoRef.current.play();
-                     else videoRef.current.pause();
+                   const video = videoRef.current;
+                   if (!video) return;
+                   if (video.paused) {
+                     if (isScreenLocked || isPositionStale(video)) {
+                       jumpToLiveEdge(video);
+                     }
+                     video.play().catch(console.error);
+                   } else {
+                     video.pause();
                    }
                 }} className="w-14 h-14 flex items-center justify-center bg-white text-black hover:bg-gray-200 shadow-xl rounded-full active:scale-95 transition-all mx-2">
                   {isPlaying ? (
