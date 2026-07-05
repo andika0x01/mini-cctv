@@ -6,14 +6,13 @@
     "build": "react-router build",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "react-router dev",
-    "dev:backend": "cd backend && uv run uvicorn main:app --port 8000",
-    "start": "react-router-serve ./build/server/index.js",
+    "dev:backend": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "start": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
     "@react-router/node": "8.0.0",
     "@react-router/serve": "8.0.0",
-    "hls.js": "^1.6.16",
     "isbot": "^5.1.36",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
