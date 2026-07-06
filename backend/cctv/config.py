@@ -66,37 +66,16 @@ class Config:
     stream_target_fps: int
     camera_open_retry_ms: int
     camera_read_fail_threshold: int
-    person_confidence_threshold: float
-    person_detection_interval_ms: int
-    person_detection_max_width: int
-    person_report_cooldown_seconds: int
-    scenario_state_db_path: str
-    yolo_model_path: str
-    yolo_input_size: int
     audio_enabled: bool
     audio_device: str
     audio_sample_rate: int
     audio_channels: int
     alsa_config_path: str
     alsa_config_dir: str
-    clip_pre_seconds: int
-    clip_post_seconds: int
-    telegram_bot_token: str
-    telegram_chat_id: str
 
 
 def load_config() -> Config:
     load_env_files()
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required")
-
-    backend_dir = Path(__file__).resolve().parent.parent
-    default_model = str(backend_dir / "models" / "yolo11n.onnx")
-    person_detection_max_width = env_int("PERSON_DETECTION_MAX_WIDTH", 416)
-    yolo_input_size = min(env_int("YOLO_INPUT_SIZE", 320), person_detection_max_width)
-    default_state_db = str(backend_dir / "data" / "scenario_state.sqlite3")
     return Config(
         camera_device=os.getenv("CAMERA_DEVICE", "/dev/video1"),
         camera_width=env_int("CAMERA_WIDTH", 960),
@@ -105,22 +84,10 @@ def load_config() -> Config:
         stream_target_fps=env_int("STREAM_TARGET_FPS", 18),
         camera_open_retry_ms=env_int("CAMERA_OPEN_RETRY_MS", 2000),
         camera_read_fail_threshold=env_int("CAMERA_READ_FAIL_THRESHOLD", 20),
-        person_confidence_threshold=float(os.getenv("PERSON_CONFIDENCE_THRESHOLD", "0.45")),
-        person_detection_interval_ms=env_int("PERSON_DETECTION_INTERVAL_MS", 250),
-        person_detection_max_width=person_detection_max_width,
-        person_report_cooldown_seconds=env_int("PERSON_REPORT_COOLDOWN_SECONDS", 20),
-        scenario_state_db_path=os.getenv("SCENARIO_STATE_DB_PATH", default_state_db),
-        yolo_model_path=os.getenv("YOLO_MODEL_PATH", default_model),
-        yolo_input_size=yolo_input_size,
         audio_enabled=env_bool("AUDIO_ENABLED", True),
         audio_device=os.getenv("AUDIO_DEVICE", "hw:1,0"),
         audio_sample_rate=env_int("AUDIO_SAMPLE_RATE", 16000),
         audio_channels=env_int("AUDIO_CHANNELS", 1),
         alsa_config_path=os.getenv("ALSA_CONFIG_PATH", "/usr/share/alsa/alsa.conf"),
         alsa_config_dir=os.getenv("ALSA_CONFIG_DIR", "/usr/share/alsa"),
-        clip_pre_seconds=env_int("CLIP_PRE_SECONDS", 3),
-        clip_post_seconds=env_int("CLIP_POST_SECONDS", 7),
-        telegram_bot_token=token,
-        telegram_chat_id=chat_id,
     )
-

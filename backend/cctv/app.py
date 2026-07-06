@@ -9,36 +9,19 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import load_config
-from .detector import YoloPersonDetector
 from .models import OfferRequest
-from .notifier import TelegramNotifier
-from .scenario_state import ScenarioStateStore
 from .services import AudioInputService, CameraService, CameraTrack
 
 peer_connections: set[RTCPeerConnection] = set()
 camera_service: CameraService | None = None
 audio_service: AudioInputService | None = None
-scenario_store: ScenarioStateStore | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global camera_service, audio_service, scenario_store
+    global camera_service, audio_service
     config = load_config()
-    notifier = TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id)
-    detector = YoloPersonDetector(
-        config.yolo_model_path,
-        config.yolo_input_size,
-        config.person_confidence_threshold,
-    )
-    scenario_store = ScenarioStateStore(config.scenario_state_db_path)
-    camera_service = CameraService(
-        config,
-        notifier,
-        asyncio.get_running_loop(),
-        detector,
-        scenario_store,
-    )
+    camera_service = CameraService(config)
     audio_service = AudioInputService(config)
     audio_service.start()
     camera_service.start()
@@ -51,8 +34,6 @@ async def lifespan(_: FastAPI):
             camera_service.stop()
         if audio_service is not None:
             audio_service.stop()
-        if scenario_store is not None:
-            scenario_store.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -131,4 +112,3 @@ async def serve_spa(full_path: str):
     if file_path.is_file():
         return FileResponse(file_path)
     return FileResponse(build_client_dir / "index.html")
-

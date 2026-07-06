@@ -2,75 +2,47 @@
 
 Always-on mini CCTV dengan:
 
-- Ultra-low-latency live streaming via WebRTC (sub-second target)
-- Realtime audio via WebRTC (ALSA input)
-- 24/7 server-side YOLO person detection
-- Auto send short person-event clips to Telegram
-- Camera ON/OFF toggle langsung dari browser (instan, tanpa disconnect WebRTC)
+- Ultra-low-latency live streaming via WebRTC (event-driven, tanpa artificial sleep)
+- Realtime audio via WebRTC (ALSA input → aiortc MediaRelay)
+- Camera ON/OFF toggle langsung dari browser (instan, WebRTC tetap connected)
 
-## Architecture (current)
+## Architecture
 
 - **Backend**: FastAPI + aiortc + OpenCV
-  - Camera service is always on
+  - Camera service always on dengan auto-reconnect
   - WebRTC signaling endpoint untuk browser clients
-  - YOLO person detection loop with cooldown + clip creation
-  - Telegram delivery on person detection events
-  - `/api/camera/toggle` — pause/resume kamera tanpa disconnect WebRTC (saat paused, black frame dikirim ke client)
+  - Event-driven frame delivery: `threading.Event` → `run_in_executor` → `CameraTrack.recv()`
+  - Audio via ALSA MediaPlayer + MediaRelay
+  - `/api/camera/toggle` — pause/resume kamera tanpa disconnect WebRTC
 - **Frontend**: React Router single-page live viewer
-  - Tombol **CAMERA ON/OFF** di pojok kanan atas (optimistic update, instan)
+  - Tombol **CAMERA ON/OFF** di pojok kanan atas (optimistic update)
   - Tombol **AUDIO ON/OFF** di pojok kiri atas
   - Status badge koneksi WebRTC
   - Auto-reconnect saat koneksi putus
 
-## Required environment variables
+## Environment variables
 
-Set these before starting backend:
+Copy `.env.example` ke `.env` dan sesuaikan:
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-
-Optional tuning variables:
-
-- `CAMERA_DEVICE` (default: `/dev/video1`)
-- `CAMERA_WIDTH` (default: `960`)
-- `CAMERA_HEIGHT` (default: `540`)
-- `CAMERA_FPS` (default: `25`)
-- `STREAM_TARGET_FPS` (default: `18`, output WebRTC target)
-- `CAMERA_OPEN_RETRY_MS` (default: `2000`, jeda retry buka kamera saat device belum tersedia)
-- `CAMERA_READ_FAIL_THRESHOLD` (default: `20`, jumlah gagal read beruntun sebelum auto reconnect kamera)
-- `YOLO_MODEL_PATH` (default: `models/yolo11n.onnx` jika proses dijalankan dari folder `backend`)
-- `YOLO_INPUT_SIZE` (default: `320`, untuk respons deteksi lebih cepat)
-- `PERSON_CONFIDENCE_THRESHOLD` (default: `0.45`)
-- `PERSON_DETECTION_INTERVAL_MS` (default: `250`)
-- `PERSON_DETECTION_MAX_WIDTH` (default: `416`, frame detector akan di-resize agar lebih ringan)
-- `PERSON_REPORT_COOLDOWN_SECONDS` (default: `20`, dipakai sebagai durasi reset scenario: report baru dikirim lagi jika person **hilang** minimal selama durasi ini)
-- `SCENARIO_STATE_DB_PATH` (default: `backend/data/scenario_state.sqlite3`, sqlite state untuk deduplikasi report antar restart)
-- `AUDIO_ENABLED` (default: `true`)
-- `AUDIO_DEVICE` (default: `hw:1,0`, input ALSA)
-- `AUDIO_SAMPLE_RATE` (default: `16000`)
-- `AUDIO_CHANNELS` (default: `1`)
-- `ALSA_CONFIG_PATH` (default: `/usr/share/alsa/alsa.conf`)
-- `ALSA_CONFIG_DIR` (default: `/usr/share/alsa`)
-- `CLIP_PRE_SECONDS` (default: `3`)
-- `CLIP_POST_SECONDS` (default: `7`)
-
-Contoh profil balanced untuk STB low-resource (S905X 2GB):
-
-```env
-CAMERA_WIDTH=960
-CAMERA_HEIGHT=540
-CAMERA_FPS=25
-STREAM_TARGET_FPS=18
-YOLO_INPUT_SIZE=320
-PERSON_DETECTION_MAX_WIDTH=416
-PERSON_DETECTION_INTERVAL_MS=250
-AUDIO_ENABLED=true
-AUDIO_DEVICE=hw:1,0
+```bash
+cp .env.example .env
 ```
 
-> Model YOLO ONNX harus tersedia di `backend/models/yolo11n.onnx` (atau set `YOLO_MODEL_PATH`).
-> Contoh download:
-> `mkdir -p backend/models && curl -L -o backend/models/yolo11n.onnx https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx`
+| Variable | Default | Keterangan |
+|---|---|---|
+| `CAMERA_DEVICE` | `/dev/video1` | Path device kamera |
+| `CAMERA_WIDTH` | `960` | Resolusi horizontal |
+| `CAMERA_HEIGHT` | `540` | Resolusi vertikal |
+| `CAMERA_FPS` | `25` | Target FPS kamera |
+| `STREAM_TARGET_FPS` | `18` | Target FPS output WebRTC |
+| `CAMERA_OPEN_RETRY_MS` | `2000` | Jeda retry saat device belum tersedia |
+| `CAMERA_READ_FAIL_THRESHOLD` | `20` | Gagal read beruntun sebelum auto-reconnect |
+| `AUDIO_ENABLED` | `true` | Aktifkan audio realtime |
+| `AUDIO_DEVICE` | `hw:1,0` | Input ALSA |
+| `AUDIO_SAMPLE_RATE` | `16000` | Sample rate audio |
+| `AUDIO_CHANNELS` | `1` | Jumlah channel audio |
+| `ALSA_CONFIG_PATH` | `/usr/share/alsa/alsa.conf` | Path konfigurasi ALSA |
+| `ALSA_CONFIG_DIR` | `/usr/share/alsa` | Direktori konfigurasi ALSA |
 
 ## Development
 
@@ -80,32 +52,18 @@ Install frontend dependencies:
 npm install
 ```
 
-Install backend dependencies (with `uv`):
+Install backend dependencies (dengan `uv`):
 
 ```bash
 cd backend
 uv sync
 ```
 
-Run both frontend + backend:
+Jalankan frontend + backend sekaligus:
 
 ```bash
 npm run dev
 ```
-
-## Runtime status for tuning
-
-Backend exposes `GET /api/status` dengan runtime metrics:
-
-- `camera_running`, `camera_connected`, `camera_paused`
-- `camera_fps_detected`, `camera_fps_estimate`
-- `camera_open_failures`, `camera_reconnects`, `camera_read_failures`
-- `stream_target_fps`, `last_frame_age_ms`
-- `detection_infer_avg_ms`, `detection_infer_peak_ms`
-- `detection_queue_size`, `detection_dropped_frames`
-- `frame_buffer_size`, `uptime_seconds`
-- `active_peers`
-- `audio_enabled`, `audio_device`
 
 ## API Endpoints
 
@@ -113,4 +71,25 @@ Backend exposes `GET /api/status` dengan runtime metrics:
 |--------|------|------------|
 | `POST` | `/api/webrtc/offer` | WebRTC SDP offer/answer signaling |
 | `GET`  | `/api/status` | Runtime metrics |
-| `POST` | `/api/camera/toggle` | Toggle kamera on/off (returns `{ paused: bool }`) |
+| `POST` | `/api/camera/toggle` | Toggle kamera on/off — returns `{ paused: bool }` |
+
+## Runtime status (`GET /api/status`)
+
+```json
+{
+  "camera_running": true,
+  "camera_connected": true,
+  "camera_paused": false,
+  "camera_fps_detected": 25,
+  "camera_fps_estimate": 24.97,
+  "camera_open_failures": 0,
+  "camera_reconnects": 0,
+  "camera_read_failures": 0,
+  "stream_target_fps": 18,
+  "last_frame_age_ms": 3.2,
+  "uptime_seconds": 3600,
+  "active_peers": 1,
+  "audio_enabled": true,
+  "audio_device": "hw:1,0"
+}
+```
