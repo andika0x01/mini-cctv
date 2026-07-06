@@ -67,7 +67,11 @@ export function useWebRtcStream() {
         peerRef.current = null;
       }
 
-      const peer = new RTCPeerConnection();
+      const peer = new RTCPeerConnection({
+        iceServers: [],
+        iceCandidatePoolSize: 0,
+        iceTransportPolicy: "all",
+      });
       peerRef.current = peer;
       peer.addTransceiver("video", { direction: "recvonly" });
       peer.addTransceiver("audio", { direction: "recvonly" });
@@ -75,6 +79,13 @@ export function useWebRtcStream() {
       peer.ontrack = (event) => {
         if (!videoRef.current) return;
         const [stream] = event.streams;
+        const receiver = peer.getReceivers().find(r => r.track.kind === "video");
+        if (receiver) {
+          // @ts-ignore
+          receiver.playoutDelayHint = 0;
+          // @ts-ignore
+          receiver.jitterBufferTarget = 0;
+        }
         const [track] = stream.getVideoTracks();
         if (track) {
           track.contentHint = "motion";

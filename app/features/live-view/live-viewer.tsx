@@ -73,6 +73,9 @@ export function LiveViewer() {
           autoPlay
           muted={!audioEnabled}
           className="w-full h-full object-contain"
+          style={{ willChange: "transform" }}
+          disablePictureInPicture
+          disableRemotePlayback
           onLoadedMetadata={() => {
             if (videoRef.current) {
               void videoRef.current.play();

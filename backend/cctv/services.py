@@ -22,6 +22,8 @@ class CameraService:
         self._capture_thread: Thread | None = None
         self._stop_event = Event()
         self._new_frame_event = Event()
+        self._async_new_frame_event: asyncio.Event | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._frame_lock = Lock()
         self._latest_frame: np.ndarray | None = None
         self._effective_fps = max(1, config.camera_fps)
@@ -100,17 +102,27 @@ class CameraService:
 
     def latest_frame(self) -> np.ndarray:
         if self._paused:
-            return self._black_frame.copy()
+            return self._black_frame
         with self._frame_lock:
             if self._latest_frame is None:
-                return self._black_frame.copy()
-            return self._latest_frame.copy()
+                return self._black_frame
+            return self._latest_frame
 
     def wait_new_frame(self, timeout: float = 0.2) -> None:
         """Block caller thread until a new frame arrives or timeout elapses.
         Safe to call from multiple threads simultaneously."""
         self._new_frame_event.wait(timeout=timeout)
         self._new_frame_event.clear()
+
+    async def wait_new_frame_async(self, timeout: float) -> None:
+        if self._async_new_frame_event is None:
+            self._event_loop = asyncio.get_running_loop()
+            self._async_new_frame_event = asyncio.Event()
+        try:
+            await asyncio.wait_for(self._async_new_frame_event.wait(), timeout)
+        except asyncio.TimeoutError:
+            pass
+        self._async_new_frame_event.clear()
 
     def _open_camera_capture(self) -> cv2.VideoCapture | None:
         capture = cv2.VideoCapture(self.config.camera_device, cv2.CAP_V4L2)
@@ -183,12 +195,14 @@ class CameraService:
 
             with self._metrics_lock:
                 self._consecutive_read_failures = 0
-            stamped = self._add_timestamp(frame.copy())
+            stamped = self._add_timestamp(frame)
             timestamp = time.time()
             self._record_capture_tick(timestamp)
             with self._frame_lock:
                 self._latest_frame = stamped
             self._new_frame_event.set()
+            if self._event_loop is not None and self._async_new_frame_event is not None:
+                self._event_loop.call_soon_threadsafe(self._async_new_frame_event.set)
 
     def _record_capture_tick(self, timestamp: float) -> None:
         with self._metrics_lock:
@@ -246,9 +260,7 @@ class CameraTrack(VideoStreamTrack):
         # no artificial sleep. Timeout = 2 frame periods so we always deliver
         # something (e.g. black frame) even if the camera stalls.
         timeout = float(self._time_base) * 2
-        await asyncio.get_running_loop().run_in_executor(
-            None, self._camera_service.wait_new_frame, timeout
-        )
+        await self._camera_service.wait_new_frame_async(timeout)
         frame = self._camera_service.latest_frame()
         self._pts += 1
         video_frame = VideoFrame.from_ndarray(frame, format="bgr24")
