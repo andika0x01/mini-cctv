@@ -66,10 +66,21 @@ class CameraService:
         self._last_person_seen_at = time.time() if self._person_scenario_active else 0.0
         self._person_task_lock = asyncio.Lock()
         self._black_frame = np.zeros((initial_height, initial_width, 3), dtype=np.uint8)
+        self._paused = False
 
     @property
     def is_running(self) -> bool:
         return self._capture_thread is not None and self._capture_thread.is_alive()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def pause(self) -> None:
+        self._paused = True
+
+    def resume(self) -> None:
+        self._paused = False
 
     @property
     def stream_fps(self) -> int:
@@ -101,6 +112,8 @@ class CameraService:
             self._consecutive_read_failures = 0
 
     def latest_frame(self) -> np.ndarray:
+        if self._paused:
+            return self._black_frame.copy()
         with self._frame_lock:
             if self._latest_frame is None:
                 return self._black_frame.copy()

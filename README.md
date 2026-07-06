@@ -1,22 +1,26 @@
 ## Mini CCTV
 
-Always-on mini CCTV with:
+Always-on mini CCTV dengan:
 
 - Ultra-low-latency live streaming via WebRTC (sub-second target)
+- Realtime audio via WebRTC (ALSA input)
 - 24/7 server-side YOLO person detection
 - Auto send short person-event clips to Telegram
+- Camera ON/OFF toggle langsung dari browser (instan, tanpa disconnect WebRTC)
 
 ## Architecture (current)
 
 - **Backend**: FastAPI + aiortc + OpenCV
   - Camera service is always on
-  - WebRTC signaling endpoint for browser clients
+  - WebRTC signaling endpoint untuk browser clients
   - YOLO person detection loop with cooldown + clip creation
   - Telegram delivery on person detection events
+  - `/api/camera/toggle` — pause/resume kamera tanpa disconnect WebRTC (saat paused, black frame dikirim ke client)
 - **Frontend**: React Router single-page live viewer
-  - No recording timeline
-  - No lock/unlock controls
-  - No camera ON/OFF toggle
+  - Tombol **CAMERA ON/OFF** di pojok kanan atas (optimistic update, instan)
+  - Tombol **AUDIO ON/OFF** di pojok kiri atas
+  - Status badge koneksi WebRTC
+  - Auto-reconnect saat koneksi putus
 
 ## Required environment variables
 
@@ -91,12 +95,22 @@ npm run dev
 
 ## Runtime status for tuning
 
-Backend exposes `GET /api/status` with runtime metrics useful for profiling/tuning:
+Backend exposes `GET /api/status` dengan runtime metrics:
+
+- `camera_running`, `camera_connected`, `camera_paused`
 - `camera_fps_detected`, `camera_fps_estimate`
-- `camera_connected`, `camera_open_failures`, `camera_reconnects`, `camera_read_failures`
-- `stream_target_fps`
+- `camera_open_failures`, `camera_reconnects`, `camera_read_failures`
+- `stream_target_fps`, `last_frame_age_ms`
 - `detection_infer_avg_ms`, `detection_infer_peak_ms`
 - `detection_queue_size`, `detection_dropped_frames`
-- `last_frame_age_ms`, `active_peers`
-- `audio_enabled`
-- `audio_device`
+- `frame_buffer_size`, `uptime_seconds`
+- `active_peers`
+- `audio_enabled`, `audio_device`
+
+## API Endpoints
+
+| Method | Path | Keterangan |
+|--------|------|------------|
+| `POST` | `/api/webrtc/offer` | WebRTC SDP offer/answer signaling |
+| `GET`  | `/api/status` | Runtime metrics |
+| `POST` | `/api/camera/toggle` | Toggle kamera on/off (returns `{ paused: bool }`) |

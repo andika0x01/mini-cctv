@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConnectionState } from "./types";
 
@@ -6,10 +6,12 @@ export function useWebRtcStream() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [cameraActive, setCameraActive] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const reconnectAttemptRef = useRef(0);
   const audioEnabledRef = useRef(audioEnabled);
+  const cameraTogglePendingRef = useRef(false);
 
   useEffect(() => {
     audioEnabledRef.current = audioEnabled;
@@ -19,6 +21,20 @@ export function useWebRtcStream() {
     videoRef.current.muted = !audioEnabled;
     videoRef.current.volume = audioEnabled ? 1 : 0;
   }, [audioEnabled]);
+
+  // Sync initial camera state from server
+  useEffect(() => {
+    fetch("/api/status")
+      .then((r) => r.json())
+      .then((data: { camera_paused?: boolean }) => {
+        if (typeof data.camera_paused === "boolean") {
+          setCameraActive(!data.camera_paused);
+        }
+      })
+      .catch(() => {
+        // ignore — server might not be ready yet
+      });
+  }, []);
 
   useEffect(() => {
     let stopped = false;
@@ -128,12 +144,39 @@ export function useWebRtcStream() {
     }
   };
 
+  const toggleCamera = useCallback(async () => {
+    if (cameraTogglePendingRef.current) return;
+    cameraTogglePendingRef.current = true;
+
+    // Optimistic update — instan di UI, lalu sinkronisasi ke server
+    const optimisticNext = !cameraActive;
+    setCameraActive(optimisticNext);
+
+    try {
+      const res = await fetch("/api/camera/toggle", { method: "POST" });
+      if (res.ok) {
+        const data = (await res.json()) as { paused: boolean };
+        // Reconcile dengan state server yang aktual
+        setCameraActive(!data.paused);
+      } else {
+        // Rollback kalau server error
+        setCameraActive(!optimisticNext);
+      }
+    } catch {
+      // Rollback kalau network error
+      setCameraActive(!optimisticNext);
+    } finally {
+      cameraTogglePendingRef.current = false;
+    }
+  }, [cameraActive]);
+
   return {
     audioEnabled,
+    cameraActive,
     connectionState,
     errorMessage,
     toggleAudio,
+    toggleCamera,
     videoRef,
   };
 }
-

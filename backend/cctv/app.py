@@ -105,7 +105,19 @@ async def status():
     metrics["active_peers"] = len(peer_connections)
     metrics["audio_enabled"] = audio_service.enabled if audio_service is not None else False
     metrics["audio_device"] = audio_service.active_device if audio_service is not None else None
+    metrics["camera_paused"] = camera_service.is_paused
     return metrics
+
+
+@app.post("/api/camera/toggle")
+async def toggle_camera():
+    if camera_service is None or not camera_service.is_running:
+        raise HTTPException(status_code=503, detail="Camera service is not running")
+    if camera_service.is_paused:
+        camera_service.resume()
+    else:
+        camera_service.pause()
+    return {"paused": camera_service.is_paused}
 
 
 backend_dir = Path(__file__).resolve().parent.parent
