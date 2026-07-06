@@ -47,11 +47,33 @@ class CameraService:
         return self._paused
 
     def pause(self) -> None:
+        if self._paused:
+            return
         self._paused = True
+        # Stop capture thread and release the camera device so the physical
+        # camera actually turns off (LED goes out, /dev/videoX is freed).
+        self._stop_event.set()
+        self._new_frame_event.set()  # unblock any run_in_executor waiters
+        if self._capture_thread is not None:
+            self._capture_thread.join(timeout=5)
+            self._capture_thread = None
+        if self._capture is not None:
+            self._capture.release()
+            self._capture = None
+        with self._metrics_lock:
+            self._camera_connected = False
+        print("Camera paused — device released.", flush=True)
 
     def resume(self) -> None:
+        if not self._paused:
+            return
         self._paused = False
-        self._new_frame_event.set()
+        # Reopen device and restart capture thread.
+        self._stop_event.clear()
+        self._capture = self._open_camera_capture()
+        self._capture_thread = Thread(target=self._capture_loop, name="camera-capture", daemon=True)
+        self._capture_thread.start()
+        print("Camera resumed.", flush=True)
 
     @property
     def stream_fps(self) -> int:
@@ -68,6 +90,7 @@ class CameraService:
         self._new_frame_event.set()  # unblock any waiters
         if self._capture_thread is not None:
             self._capture_thread.join(timeout=5)
+            self._capture_thread = None
         if self._capture is not None:
             self._capture.release()
             self._capture = None
