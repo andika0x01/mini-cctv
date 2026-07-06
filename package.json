@@ -6,8 +6,8 @@
     "build": "react-router build",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "react-router dev",
-    "dev:backend": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
-    "start": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
+    "dev:backend": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 80 --reload",
+    "start": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 80",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
