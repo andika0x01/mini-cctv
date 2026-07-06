@@ -92,11 +92,13 @@ async def status():
 
 @app.post("/api/camera/toggle")
 async def toggle_camera():
-    if camera_service is None or not camera_service.is_running:
-        raise HTTPException(status_code=503, detail="Camera service is not running")
+    if camera_service is None:
+        raise HTTPException(status_code=503, detail="Camera service not available")
     if camera_service.is_paused:
         camera_service.resume()
     else:
+        if not camera_service.is_running:
+            raise HTTPException(status_code=503, detail="Camera service is not running")
         camera_service.pause()
     return {"paused": camera_service.is_paused}
 
